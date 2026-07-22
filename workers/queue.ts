@@ -39,7 +39,7 @@ export async function queueConsumer(
 	}
 }
 
-async function executeJob(env: Env, job: QueueJob): Promise<Citation> {
+export async function executeJob(env: Env, job: QueueJob): Promise<Citation> {
 	try {
 		const text = await callModel(env, job);
 		const mentioned = text.toLowerCase().includes(job.domain);

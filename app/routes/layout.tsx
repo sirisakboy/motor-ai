@@ -1,97 +1,33 @@
-import { Outlet, NavLink, useLoaderData, useSearchParams } from "react-router";
-import type { Route } from "./+types/layout";
-import { Header } from "~/components/header";
-import {
-	Sidebar,
-	SidebarSection,
-	SidebarNav,
-	SidebarNavItem,
-} from "~/components/sidebar";
-import { ChartBar, ListBullets, Cube, Plus } from "@phosphor-icons/react";
+import { Outlet } from "react-router";
 
-export async function loader({ context, request }: Route.LoaderArgs) {
-	const env = context.cloudflare.env;
-	const sites = ((await env.AEO_KV.get("sites", "json")) as any[]) ?? [];
-	// Get active site from ?site= param, default to first
-	const url = new URL(request.url);
-	const siteParam = url.searchParams.get("site");
-	const activeSite =
-		siteParam && sites.find((s: any) => s.domain === siteParam)
-			? siteParam
-			: (sites[0]?.domain ?? "");
-	return { sites, activeSite };
-}
-
-export type DashboardContext = { activeSite: string; sites: any[] };
-
-export default function DashboardLayout({ loaderData }: Route.ComponentProps) {
-	const { sites, activeSite } = loaderData;
-	const [searchParams] = useSearchParams();
-	const ctx: DashboardContext = { activeSite, sites };
-
-	// Build link with site param preserved
-	const siteLink = (path: string) => {
-		const params = new URLSearchParams(searchParams);
-		if (activeSite) params.set("site", activeSite);
-		// Remove testId if navigating away
-		if (path !== "/") params.delete("testId");
-		const qs = params.toString();
-		return qs ? `${path}?${qs}` : path;
-	};
-
+export default function GarageLayout() {
 	return (
-		<>
-			<Header domain={activeSite} />
-			<div className="flex min-h-[calc(100vh-58px)]">
-				<Sidebar>
-					<SidebarSection label="Sites">
-						{sites.map((s: any) => (
-							<a
-								key={s.domain}
-								href={`/?site=${encodeURIComponent(s.domain)}`}
-								className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-0.5 transition-colors ${
-									s.domain === activeSite
-										? "bg-neutral-100 text-neutral-900 font-medium"
-										: "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
-								}`}
-							>
-								<span className="truncate">{s.domain}</span>
-							</a>
-						))}
-						<NavLink
-							to="/setup"
-							className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-brand border border-dashed border-neutral-200 hover:bg-blue-50 transition-colors mt-1"
-						>
-							<Plus size={14} weight="bold" />
-							Add site
-						</NavLink>
-					</SidebarSection>
+		<div className="flex min-h-screen bg-[#0b0d10] text-zinc-100 overflow-hidden">
+			{/* Sidebar */}
+			<aside className="w-[300px] h-screen bg-[#111418] border-r border-zinc-800 flex flex-col shrink-0">
+				<div className="h-[6px] hazard shrink-0"></div>
+				<div className="p-4 flex items-center gap-3 border-b border-zinc-800">
+					<div className="w-11 h-11 rounded-xl bg-orange-500 flex items-center justify-center -rotate-6 shadow-[3px_3px_0_#000]">🔧</div>
+					<div>
+						<div className="display font-black text-[20px] tracking-wide leading-none">MotorBoy<span className="text-orange-500">-AI</span></div>
+						<div className="text-[10px] tracking-[0.18em] uppercase text-orange-400 font-bold mt-1">บอย อะไหล่ยนต์</div>
+					</div>
+					<div className="ml-auto bg-black border border-yellow-400 text-yellow-400 text-[9px] font-black px-2 py-1 rounded-full rotate-[12deg]">100% ซิ่ง</div>
+				</div>
+                <div className="flex-1 overflow-y-auto p-3">
+                    {/* Navigation items will be added here */}
+                </div>
+			</aside>
 
-					<SidebarSection label="Views">
-						<SidebarNav>
-							<SidebarNavItem to={siteLink("/")} icon={<ChartBar size={16} />}>
-								Results
-							</SidebarNavItem>
-							<SidebarNavItem
-								to={siteLink("/prompts")}
-								icon={<ListBullets size={16} />}
-							>
-								Prompts
-							</SidebarNavItem>
-							<SidebarNavItem
-								to={siteLink("/models")}
-								icon={<Cube size={16} />}
-							>
-								Models
-							</SidebarNavItem>
-						</SidebarNav>
-					</SidebarSection>
-				</Sidebar>
-
-				<main className="flex-1 min-w-0 bg-canvas">
-					<Outlet context={ctx} />
-				</main>
-			</div>
-		</>
+			{/* Main */}
+			<main className="flex-1 flex flex-col min-w-0">
+				<header className="h-[64px] bg-[#111418]/90 backdrop-blur border-b border-zinc-800 flex items-center px-5 shrink-0 sticky top-0 z-20">
+                    <span className="display font-black text-[18px]">GARAGE DASHBOARD</span>
+                </header>
+                <div className="flex-1 overflow-y-auto">
+                    <Outlet />
+                </div>
+			</main>
+		</div>
 	);
 }

@@ -75,3 +75,40 @@ export const RETENTION_DAYS = 30;
 
 export const SYSTEM_PROMPT =
 	"You are a helpful assistant. When answering questions, mention specific companies, products, and websites by name when relevant. Include URLs when you know them.";
+
+/**
+ * Telegram Bot Configuration
+ * Configure secrets in wrangler.jsonc under "secrets" or use wrangler secret put
+ * Usage in worker: TELEGRAM_CONFIG.fromEnv(env) to get runtime values
+ */
+export type TelegramEnv = {
+	TELEGRAM_BOT_TOKEN?: string;
+	TELEGRAM_WEBHOOK_URL?: string;
+	TELEGRAM_ALLOWED_CHATS?: string;
+};
+
+export type TelegramConfig = {
+	botToken: string;
+	webhookUrl: string;
+	allowedChats: number[];
+	rateLimit: number;
+	maxMessageLength: number;
+};
+
+export const TELEGRAM_CONFIG: TelegramConfig = {
+	botToken: "",
+	webhookUrl: "",
+	allowedChats: [],
+	rateLimit: 5,
+	maxMessageLength: 4096,
+};
+
+export function getTelegramConfig(env: TelegramEnv): TelegramConfig {
+	return {
+		botToken: env.TELEGRAM_BOT_TOKEN || "",
+		webhookUrl: env.TELEGRAM_WEBHOOK_URL || "",
+		allowedChats: env.TELEGRAM_ALLOWED_CHATS ? env.TELEGRAM_ALLOWED_CHATS.split(",").map(Number) : [],
+		rateLimit: 5,
+		maxMessageLength: 4096,
+	};
+}

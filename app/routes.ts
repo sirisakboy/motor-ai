@@ -12,4 +12,5 @@ export default [
 		route("models", "routes/models.tsx"),
 	]),
 	route("setup", "routes/setup.tsx"),
+	route("chat", "routes/chat.tsx"),
 ] satisfies RouteConfig;

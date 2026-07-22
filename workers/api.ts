@@ -9,7 +9,10 @@ import {
 	SYSTEM_PROMPT,
 	SETUP_MODEL,
 } from "../src/config";
-import type { ModelConfig } from "../src/config";
+import type { ModelConfig, TelegramEnv, TelegramConfig } from "../src/config";
+import { getTelegramConfig } from "../src/config";
+import { CHAT_CONFIG, VEHICLE_TYPES, REPAIR_CATEGORIES } from "../src/chat-config";
+import type { VehicleType, RepairCategory } from "../src/chat-config";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -18,6 +21,24 @@ type Env = {
 	AEO_KV: KVNamespace;
 	BRAND_VISIBILITY_QUEUE: Queue;
 	TARGET_DOMAIN: string;
+	TELEGRAM_BOT_TOKEN?: string;
+	TELEGRAM_WEBHOOK_URL?: string;
+	TELEGRAM_ALLOWED_CHATS?: string;
+	SERPAPI_KEY?: string;
+};
+
+type ChatMessage = {
+	id: string;
+	role: "user" | "assistant";
+	content: string;
+	timestamp: string;
+};
+
+type ChatSession = {
+	messages: ChatMessage[];
+	vehicleType?: string;
+	vehicleBrand?: string;
+	vehicleModel?: string;
 };
 
 type Site = {
@@ -382,6 +403,40 @@ apiRoutes.get("/setup", async (c) => {
 	return handleSetup(c.env, domain, brandName, competitors, c);
 });
 
+// ── Web Search Helper ──────────────────────────────────────────────────────
+
+async function webSearch(query: string, apiKey: string): Promise<string> {
+	// Added site:suparat.net to narrow down results for spare parts
+	const searchQuery = `${query} site:suparat.net`;
+	const params = new URLSearchParams({
+		q: searchQuery,
+		location: "Thailand",
+		hl: "th",
+		gl: "th",
+		google_domain: "google.co.th",
+		engine: "google",
+		api_key: apiKey
+	});
+
+	const url = `https://serpapi.com/search.json?${params.toString()}`;
+	try {
+		const response = await fetch(url);
+		const data = await response.json() as any;
+		
+		if (data.organic_results && data.organic_results.length > 0) {
+			return data.organic_results
+				.slice(0, 3)
+				.map((r: any) => `${r.title}: ${r.link}`)
+				.join("\n");
+		}
+		// Fallback to normal search if site-specific search fails
+		return "ไม่พบข้อมูลที่ตรงกัน";
+	} catch (err) {
+		console.error("Search error:", err);
+		return "เกิดข้อผิดพลาดในการค้นหา";
+	}
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function clean(d: string): string {
@@ -724,4 +779,339 @@ function extractAIText(r: any): string {
 	const m = s.match(/"(?:content|text)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
 	if (m) return m[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
 	return s;
+}
+
+// ── Chat endpoints ─────────────────────────────────────────────────────────────
+
+apiRoutes.get("/chat/session", async (c) => {
+	// Get or create chat session
+	const sessionId = c.req.query("session") || crypto.randomUUID();
+	const raw = await c.env.AEO_KV.get(`chat:${sessionId}`, "json") as ChatSession | null;
+	
+	if (raw) {
+		return c.json({ sessionId, ...raw });
+	}
+	
+	const session: ChatSession = { messages: [] };
+	await c.env.AEO_KV.put(`chat:${sessionId}`, JSON.stringify(session), {
+		expirationTtl: CHAT_CONFIG.session.ttlSeconds,
+	});
+	
+	return c.json({ sessionId, ...session });
+});
+
+apiRoutes.post("/chat/message", async (c) => {
+	const body = await c.req.json<{
+		sessionId: string;
+		message: string;
+		vehicleContext?: string;
+	}>();
+	
+	const { sessionId, message, vehicleContext } = body;
+	if (!sessionId || !message) return c.json({ error: "Missing sessionId or message" }, 400);
+	
+	const raw = await c.env.AEO_KV.get(`chat:${sessionId}`, "json") as ChatSession | null;
+	const session: ChatSession = raw || { messages: [] };
+	
+	session.messages.push({
+		id: crypto.randomUUID(),
+		role: "user",
+		content: message,
+		timestamp: new Date().toISOString(),
+	});
+	
+	// 1. Analyze if web search is needed
+	const needSearch = await determineIfSearchNeeded(c.env.AI, message, vehicleContext || "");
+	let webData = "";
+	let imageUrl = null;
+
+	if (needSearch && c.env.SERPAPI_KEY) {
+		// Try to get cached image
+		const cacheKey = `img-cache:${btoa(message + (vehicleContext || ""))}`;
+		imageUrl = await c.env.AEO_KV.get(cacheKey);
+
+		if (!imageUrl) {
+			webData = await webSearch(message + " " + (vehicleContext || ""), c.env.SERPAPI_KEY);
+			imageUrl = await getPartsDiagramUrl(message + " " + (vehicleContext || ""), c.env.SERPAPI_KEY);
+			
+			if (imageUrl) {
+				await c.env.AEO_KV.put(cacheKey, imageUrl, { expirationTtl: 604800 }); // 7 days
+			}
+		}
+	}
+
+	// 2. AI Analysis, Response Generation, and Insight Extraction
+	const { responseText, technicalInsight } = await generateAndLearn(
+		c.env.AI, 
+		message, 
+		vehicleContext || "", 
+		webData,
+		imageUrl,
+        c.env.GROQ_API_KEY
+	);
+
+	// 3. Save Technical Insight if valid
+	if (technicalInsight) {
+		await saveNewTechnicalKnowledge(c.env.AEO_KV, technicalInsight);
+	}
+	
+	const assistantMsg: ChatMessage = {
+		id: crypto.randomUUID(),
+		role: "assistant",
+		content: responseText,
+		timestamp: new Date().toISOString(),
+	};
+	session.messages.push(assistantMsg);
+	
+	await c.env.AEO_KV.put(`chat:${sessionId}`, JSON.stringify(session), {
+		expirationTtl: CHAT_CONFIG.session.ttlSeconds,
+	});
+	
+	return c.json({ sessionId, message: assistantMsg });
+});
+
+// --- Helper Functions ---
+
+async function getPartsDiagramUrl(query: string, apiKey: string): Promise<string | null> {
+    const searchQuery = `${query} suparat.net parts diagram`;
+    const params = new URLSearchParams({
+        q: searchQuery,
+        tbm: "isch",
+        api_key: apiKey
+    });
+    const url = `https://serpapi.com/search.json?${params.toString()}`;
+    
+    try {
+        const res = await fetch(url);
+        const data = await res.json() as any;
+        return data.images_results?.[0]?.original || null;
+    } catch {
+        return null;
+    }
+}
+
+async function determineIfSearchNeeded(ai: Ai, query: string, context: string): Promise<boolean> {
+	if (!ai) return false;
+	const prompt = `Context: ${context}\nQuery: ${query}\nDoes this query require real-time technical info or a parts diagram from the web? Reply ONLY "yes" or "no".`;
+	const res = await ai.run(CHAT_CONFIG.model.id as any, { messages: [{ role: "user", content: prompt }] });
+	return extractAIText(res).toLowerCase().includes("yes");
+}
+
+import { Groq } from 'groq-sdk';
+
+async function generateAndLearn(ai: Ai, query: string, context: string, webData: string, imageUrl: string | null, groqApiKey?: string) {
+    const prompt = `You are MotorBoy-AI (บอย อะไหล่ยนต์), expert mechanic.
+Context: ${context}
+Query: ${query}
+Web Data: ${webData}
+Parts Diagram URL: ${imageUrl || "None"}
+
+Perform two tasks:
+1. Provide a direct, casual, technical repair response. If a Parts Diagram URL is provided, include it in the response as an image link: ![Parts Diagram](${imageUrl}).
+2. Analyze the Web Data. If it contains a RARE or UNIQUE technical repair technique, insight, or fix NOT widely known, extract it for the knowledge base.
+
+Respond in JSON ONLY:
+{
+    "answer": "Repair response here (include image markdown if diagram is provided)",
+    "technicalInsight": "Unique technical insight or null if none found"
+}`;
+
+    const messages = [{ role: "user", content: prompt }];
+
+    // 1. Try Cloudflare Workers AI
+    if (ai) {
+        try {
+            const isWorkersAI = CHAT_CONFIG.model.id.startsWith("@cf/");
+            const res = await ai.run(CHAT_CONFIG.model.id as any, { 
+                messages, 
+                max_tokens: CHAT_CONFIG.model.maxTokens 
+            }, isWorkersAI ? undefined : { gateway: { id: "default" } });
+            
+            const text = extractAIText(res);
+            return parseAIResponse(text);
+        } catch (e) {
+            console.error("Workers AI failed, falling back to Groq:", e);
+        }
+    }
+
+    // 2. Fallback to Groq
+    if (groqApiKey) {
+        try {
+            const groq = new Groq({ apiKey: groqApiKey });
+            const res = await groq.chat.completions.create({
+                messages: [{ role: "user", content: prompt }],
+                model: "qwen-2.5-32b", // Using Qwen 2.5 32B as requested
+                temperature: 0.6,
+            });
+            const text = res.choices[0]?.message?.content || "";
+            return parseAIResponse(text);
+        } catch (e) {
+            console.error("Groq fallback also failed:", e);
+        }
+    }
+
+    return { responseText: "ขอโทษครับ ระบบ AI ตอนนี้ไม่สามารถใช้งานได้ กรุณาลองใหม่อีกครั้ง", technicalInsight: null };
+}
+
+// Helper to parse the JSON response from AI
+function parseAIResponse(text: string) {
+    try {
+        const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+        return { responseText: parsed.answer, technicalInsight: parsed.technicalInsight };
+    } catch {
+        return { responseText: text, technicalInsight: null };
+    }
+}
+
+async function saveNewTechnicalKnowledge(kv: KVNamespace, insight: string) {
+	const id = crypto.randomUUID();
+	await kv.put(`tech-insight:${id}`, JSON.stringify({
+		timestamp: new Date().toISOString(),
+		content: insight
+	}));
+}
+
+apiRoutes.get("/chat/vehicles", async (c) => {
+	// Return vehicle types and repair categories for the chat UI
+	const { VEHICLE_TYPES, REPAIR_CATEGORIES } = await import("../src/chat-config");
+	return c.json({
+		vehicleTypes: VEHICLE_TYPES,
+		repairCategories: REPAIR_CATEGORIES,
+	});
+});
+
+// ── Telegram endpoints ─────────────────────────────────────────────────────────
+
+apiRoutes.post("/telegram/webhook", async (c) => {
+	const update = await c.req.json<any>();
+	const tgConfig = getTelegramConfig(c.env as TelegramEnv);
+	
+	if (!tgConfig.botToken) {
+		return new Response("Unauthorized", { status: 401 });
+	}
+	
+	const message = update.message || update.edited_message;
+	if (!message) return new Response("OK");
+	
+	const chatId = message.chat.id;
+	const text = message.text || "";
+	
+	// Check allowed chats
+	if (tgConfig.allowedChats.length > 0 && !tgConfig.allowedChats.includes(chatId)) {
+		return new Response("Forbidden", { status: 403 });
+	}
+	
+	// Handle /start command
+	if (text === "/start") {
+		await sendTelegramMessage(tgConfig.botToken, chatId, `สวัสดี! ฉันคือผู้ช่วยช่างซ่อมรถ 🚗🔧\n\n${CHAT_CONFIG.disclaimer}`);
+		return new Response("OK");
+	}
+	
+	// Handle chat messages
+	if (text) {
+		const sessionId = `tg:${chatId}`;
+		const raw = await c.env.AEO_KV.get(`chat:${sessionId}`, "json") as ChatSession | null;
+		const session: ChatSession = raw || { messages: [] };
+		
+		// Add user message
+		session.messages.push({
+			id: crypto.randomUUID(),
+			role: "user",
+			content: text,
+			timestamp: new Date().toISOString(),
+		});
+		
+		// Generate AI response
+		let responseText = "";
+		if (c.env.AI) {
+			try {
+				const isWorkersAI = CHAT_CONFIG.model.id.startsWith("@cf/");
+				const input: any = {
+					messages: [
+						{ role: "system", content: CHAT_CONFIG.systemPrompt },
+						...session.messages.map((m) => ({ role: m.role, content: m.content })),
+					],
+					max_tokens: CHAT_CONFIG.model.maxTokens,
+				};
+				if (CHAT_CONFIG.model.temperature) {
+					input.temperature = CHAT_CONFIG.model.temperature;
+				}
+				const response = await c.env.AI.run(
+					CHAT_CONFIG.model.id as Parameters<Ai["run"]>[0],
+					input,
+					isWorkersAI ? undefined : { gateway: { id: "default" } },
+				);
+				responseText = extractAIText(response);
+			} catch {
+				responseText = "เกิดข้อผิดพลาด กรุณาลองใหม่";
+			}
+		} else {
+			responseText = "โหมดจำลอง: " + text;
+		}
+		
+		// Add and save assistant message
+		session.messages.push({
+			id: crypto.randomUUID(),
+			role: "assistant",
+			content: responseText,
+			timestamp: new Date().toISOString(),
+		});
+		
+		await c.env.AEO_KV.put(`chat:${sessionId}`, JSON.stringify(session), {
+			expirationTtl: CHAT_CONFIG.session.ttlSeconds,
+		});
+		
+		await sendTelegramMessage(tgConfig.botToken, chatId, responseText);
+	}
+	
+	return new Response("OK");
+});
+
+apiRoutes.post("/telegram/webhook/setup", async (c) => {
+	const tgConfig = getTelegramConfig(c.env as TelegramEnv);
+	
+	if (!tgConfig.botToken) {
+		return c.json({ error: "Telegram not configured" }, 500);
+	}
+	
+	if (!tgConfig.webhookUrl) {
+		return c.json({ error: "Webhook URL not configured" }, 400);
+	}
+	
+	try {
+		const response = await fetch(
+			`https://api.telegram.org/bot${tgConfig.botToken}/setWebhook`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ url: tgConfig.webhookUrl }),
+			},
+		);
+		
+		const result = await response.json();
+		return c.json(result);
+	} catch (err) {
+		return c.json({ error: String(err) }, 500);
+	}
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+async function sendTelegramMessage(
+	botToken: string,
+	chatId: number | string,
+	text: string,
+) {
+	await fetch(
+		`https://api.telegram.org/bot${botToken}/sendMessage`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				chat_id: chatId,
+				text: text,
+				parse_mode: "HTML",
+			}),
+		},
+	);
 }
