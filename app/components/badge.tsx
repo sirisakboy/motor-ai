@@ -12,15 +12,15 @@ type BadgeVariant =
 	| "danger";
 
 const variants: Record<BadgeVariant, string> = {
-	openai: "bg-green-50 text-green-800 ring-1 ring-green-200/50",
-	anthropic: "bg-orange-50 text-orange-800 ring-1 ring-orange-200/50",
-	google: "bg-blue-50 text-blue-800 ring-1 ring-blue-200/50",
-	"workers-ai": "bg-amber-50 text-amber-800 ring-1 ring-amber-200/50",
-	meta: "bg-indigo-50 text-indigo-800 ring-1 ring-indigo-200/50",
-	mistral: "bg-amber-50 text-amber-800 ring-1 ring-amber-200/50",
-	category: "bg-neutral-100 text-neutral-600",
-	success: "bg-green-50 text-green-800",
-	danger: "bg-red-50 text-red-800",
+	openai: "bg-green-950 text-green-300 ring-1 ring-green-800/50",
+	anthropic: "bg-orange-950 text-orange-300 ring-1 ring-orange-800/50",
+	google: "bg-blue-950 text-blue-300 ring-1 ring-blue-800/50",
+	"workers-ai": "bg-amber-950 text-amber-300 ring-1 ring-amber-800/50",
+	meta: "bg-indigo-950 text-indigo-300 ring-1 ring-indigo-800/50",
+	mistral: "bg-amber-950 text-amber-300 ring-1 ring-amber-800/50",
+	category: "bg-zinc-800 text-zinc-300",
+	success: "bg-green-950 text-green-300",
+	danger: "bg-red-950 text-red-300",
 };
 
 export function Badge({
@@ -32,7 +32,7 @@ export function Badge({
 }) {
 	return (
 		<span
-			className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${variants[variant] ?? variants.category}`}
+			className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${variants[variant] ?? variants.category}`}
 		>
 			{children}
 		</span>

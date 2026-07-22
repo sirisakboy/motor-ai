@@ -1,6 +1,5 @@
 import type { ReactNode, TdHTMLAttributes, ThHTMLAttributes } from "react";
 
-/** Kumo-style data table matching stratus ResponsiveTableWrapper */
 export function Table({
 	children,
 	className = "",
@@ -16,7 +15,7 @@ export function Table({
 }
 
 export function Thead({ children }: { children: ReactNode }) {
-	return <thead className="bg-surface">{children}</thead>;
+	return <thead className="bg-[#111418]">{children}</thead>;
 }
 
 export function Th({
@@ -26,7 +25,7 @@ export function Th({
 }: ThHTMLAttributes<HTMLTableCellElement> & { children?: ReactNode }) {
 	return (
 		<th
-			className={`text-left px-4 py-2 font-medium text-[11px] uppercase tracking-[0.03em] text-neutral-500 border-b border-neutral-200 ${className}`}
+			className={`text-left px-4 py-3 font-black text-[11px] uppercase tracking-[0.1em] text-zinc-500 border-b border-zinc-800 ${className}`}
 			{...props}
 		>
 			{children}
@@ -41,7 +40,7 @@ export function Td({
 }: TdHTMLAttributes<HTMLTableCellElement> & { children?: ReactNode }) {
 	return (
 		<td
-			className={`px-4 h-[46px] align-middle border-b border-neutral-100 ${className}`}
+			className={`px-4 h-[52px] align-middle border-b border-zinc-800 text-zinc-300 ${className}`}
 			{...props}
 		>
 			{children}
@@ -57,7 +56,7 @@ export function Tr({
 	className?: string;
 }) {
 	return (
-		<tr className={`hover:bg-surface-secondary transition-colors ${className}`}>
+		<tr className={`hover:bg-[#1a1f26] transition-colors ${className}`}>
 			{children}
 		</tr>
 	);

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-/** Kumo LayerCard — exact stratus pattern: ring + shadow-xs + rounded-lg */
 export function Card({
 	children,
 	className = "",
@@ -10,14 +9,13 @@ export function Card({
 }) {
 	return (
 		<div
-			className={`w-full text-base ring ring-neutral-950/10 rounded-lg shadow-xs bg-surface overflow-hidden ${className}`}
+			className={`w-full text-base border-2 border-zinc-800 rounded-2xl shadow-[6px_6px_0_#000] bg-[#111418] overflow-hidden ${className}`}
 		>
 			{children}
 		</div>
 	);
 }
 
-/** LayerCard.Header — px-4 py-2.5 font-medium text-neutral-500 */
 export function CardHeader({
 	children,
 	className = "",
@@ -27,14 +25,13 @@ export function CardHeader({
 }) {
 	return (
 		<div
-			className={`px-4 py-2.5 font-medium text-neutral-500 flex items-center text-base ${className}`}
+			className={`px-4 py-3 font-black text-zinc-100 flex items-center justify-between text-base border-b border-zinc-800 ${className}`}
 		>
 			{children}
 		</div>
 	);
 }
 
-/** LayerCard.Title with action area — matches stratus PathsTable header */
 export function CardTitle({
 	title,
 	description,
@@ -48,18 +45,18 @@ export function CardTitle({
 }) {
 	return (
 		<div
-			className={`px-4 py-2.5 flex items-center text-base relative ${className}`}
+			className={`px-4 py-3 flex items-center text-base border-b border-zinc-800 relative ${className}`}
 		>
 			<div className="flex flex-col gap-1 relative">
 				<div
 					role="heading"
 					aria-level={2}
-					className="text-[17px]/[1.25] font-medium text-neutral-900 flex items-center gap-1"
+					className="text-[17px]/[1.25] font-black text-white flex items-center gap-1"
 				>
 					{title}
 				</div>
 				{description && (
-					<div className="text-sm text-neutral-500">{description}</div>
+					<div className="text-sm text-zinc-400">{description}</div>
 				)}
 			</div>
 			{actions && (
@@ -71,7 +68,6 @@ export function CardTitle({
 	);
 }
 
-/** LayerCard.Content — p-4 by default, flush for tables */
 export function CardBody({
 	children,
 	flush = false,
